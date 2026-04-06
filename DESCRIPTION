@@ -1,0 +1,33 @@
+Package: GraphLearnR
+Type: Package
+Title: Graph Learning with External Regressors
+Version: 0.1.0
+Authors@R: person("Shivam", "Pawar", 
+                  email = "sgpawar@csuchico.edu",
+                  role = c("aut", "cre"),
+                  comment = c(ORCID = "YOUR-ORCID-ID"))
+Description: Implements the Graph Learning with External Regressors (GLReg) 
+    algorithm for learning graph Laplacian structure from noisy signal 
+    observations. Based on the methodology from Guo, Moses, and Wang (2023).
+    Supports graph signal processing with external regressors to improve
+    structure learning under missing data. Includes tools for synthetic
+    graph generation, signal generation, and performance evaluation.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Depends: 
+    R (>= 3.5.0)
+Imports:
+    CVXR (>= 1.8.0),
+    igraph (>= 1.2.0),
+    Matrix
+Suggests:
+    testthat (>= 3.0.0),
+    knitr,
+    rmarkdown,
+    mice,
+    ggplot2
+RoxygenNote: 7.3.3
+VignetteBuilder: knitr
+URL: https://github.com/shivampawar/GraphLearnR
+BugReports: https://github.com/shivampawar/GraphLearnR/issues
