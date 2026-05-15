@@ -1,0 +1,87 @@
+---
+title: "WesternWeather_S"
+output:
+  html_document: default
+  pdf_document: default
+date: "2025-07-15"
+---
+```{r}
+library(dplyr)
+library(tidyr)
+library(VIM) 
+library(sf) 
+library(mice) 
+```
+
+### Download/Import Data 
+```{r}
+report_1440 <- read.csv("/Users/chrisduran/Downloads/report-1440-20250707152531.csv")
+western_weather_data <- report_1440
+```
+
+```{r}
+#names(western_weather_data)
+```
+
+```{r}
+#num of stations 
+#length(unique(western_weather_data$Station))
+
+#num of occurrances  
+#western_weather_data %>%
+  #count(Station, sort = TRUE)
+```
+
+```{r}
+wwd_optimal <- western_weather_data %>%
+  filter(substr(as.character(Date), 1, 2) %in% c("10", "11", "12")) 
+```
+
+```{r}
+west_weathersubset <- western_weather_data %>% 
+  select("Wind.Spd..mph.", "Temp...F.", "Max.RH....", "Soil.Moist....", "Soil.Temp...F.") 
+```
+
+
+
+## Missingness 
+```{r}
+library(mice)
+wwd_computed <- mice(west_weathersubset, m =5 , method ='pmm', seed =500) 
+wwd_computed <- complete(wwd_computed, 1) 
+```
+
+```{r}
+w2_weathersubset <- western_weather_data %>% 
+  select(Station, Date) 
+
+merged_data <- bind_cols(w2_weathersubset, wwd_computed) 
+```
+
+
+## Date Selection 
+```{r}
+norcal_wwd <- merged_data %>%
+  filter(substr(as.character(Date), 1, 2) %in% c("10", "11")) 
+```
+
+```{r}
+#num of stations 
+#length(unique(norcal_wwd$Station))
+
+#num of occurrances  
+#norcal_wwd %>%
+ #count(Station, sort = TRUE)
+```
+
+```{r}
+##removes irregular station (lack of dates)
+norcal_wwd <- norcal_wwd %>%
+  filter(Station != "BKY4201-Summit")
+```
+
+```{r}
+write.csv(norcal_wwd, file= "NorCal_wwd.csv")
+```
+
+

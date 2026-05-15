@@ -1,0 +1,238 @@
+!pip install "cvxpy[clarabel]"
+import pandas as pd
+import numpy as np 
+import cvxpy as cp
+import gl_reg as glr
+import os
+os.listdir() 
+import cvxpy as cp
+
+column_indices1 = [1 + 4*i for i in range(21)]
+column_indices2 = [188 + 4*i for i in range(20)]
+column_indiceT = column_indices1 + column_indices2
+                 
+
+df_trimmed = signals.iloc[:, column_indiceT]
+print(column_indiceT)
+
+
+
+signals = pd.read_csv("/Users/chrisduran/Desktop/315/NOAA_increased.csv")
+
+# Choose your signal type (target)
+X_REAL_DATA = signals
+signal_prefix = 'TMAX'
+signal_cols = [col for col in X_REAL_DATA.columns if col.startswith(signal_prefix)]
+X_noisy = X_REAL_DATA[signal_cols].to_numpy()  
+
+# Define regressors
+regressor_prefixes = ['ELEVATION', 'TMIN']
+P = []
+
+for prefix in regressor_prefixes:
+    cols = [col for col in X_REAL_DATA.columns if col.startswith(prefix)]
+    reg_matrix = X_REAL_DATA[cols].to_numpy()
+    
+    # Handle static variables (like elevation)
+    if reg_matrix.shape[1] == 1:
+        reg_matrix = np.repeat(reg_matrix, X_noisy.shape[1], axis=1)
+    
+    P.append(reg_matrix)
+
+ones_matrix = np.ones((20, 186))
+P.append(ones_matrix)
+
+   ###################################
+
+from sklearn import metrics
+
+def lowertrian(Lap):
+                                                ##Extract the lower triangular part of the Laplacian
+    N = Lap.shape[0]
+    return Lap[np.tril_indices(N, k=-1)]
+
+def vec(S):
+    return S.to_numpy().flatten('F') 
+
+def Pbeta(P, b):
+    """Construct the signal from regressors and beta"""
+    R = sum([P[i] * b[i] for i in range(len(P))])
+    return vec(R)
+
+def pstack(P):
+    """Stack regressor arrays into one tall matrix"""
+    Pvec = [p.ravel(order="F") for p in P]
+    return np.stack(Pvec, axis=1)
+
+def prune(L, threshold):
+    """Zero out small values in Laplacian"""
+    temp = L.copy()
+    temp[np.abs(temp) < threshold] = 0
+    return temp
+
+from sklearn import metrics
+
+
+
+def lowertrian(Lap):
+                                                ##Extract the lower triangular part of the Laplacian
+    N = Lap.shape[0]
+    return Lap[np.tril_indices(N, k=-1)]
+
+def vec(S):
+    # Vectorize matrix S in column-major (Fortran) order as a NumPy array
+    return np.ravel(S, order='F') 
+
+def Pbeta(P, b):
+    """Construct the signal from regressors and beta"""
+    R = sum([P[i] * b[i] for i in range(len(P))])
+    return vec(R)
+
+def pstack(P):
+    """Stack regressor arrays into one tall matrix"""
+    Pvec = [p.ravel(order="F") for p in P]
+    return np.stack(Pvec, axis=1)
+
+def prune(L, threshold):
+    """Zero out small values in Laplacian"""
+    temp = L.copy()
+    temp[np.abs(temp) < threshold] = 0
+    return temp
+
+
+def metricsprf(L0, L):
+    """Compute precision,F1 score and NMI between true and learned Laplacians"""
+    edges_groundtruth = lowertrian(L0) != 0
+    edges_learned = lowertrian(L) != 0
+    
+    if np.sum(edges_learned) == 0:
+        return (-1, -1, -1, -1)
+
+    precision = metrics.precision_score(edges_groundtruth, edges_learned)
+    recall = metrics.recall_score(edges_groundtruth, edges_learned)
+    fscore = metrics.f1_score(edges_groundtruth, edges_learned)
+    nmi = metrics.normalized_mutual_info_score(edges_groundtruth, edges_learned)
+    return (precision, recall, fscore, nmi)
+
+
+
+def optimize_L(hatS, P, beta, w1, w2):
+    """Optimize the Laplacian matrix"""
+    N, n = hatS.shape
+    L = cp.Variable((N, N), symmetric=True)
+    constraints = [
+        cp.trace(L) == N,
+        L - cp.diag(cp.diag(L)) <= 0,
+        cp.diag(L) >= 0,
+        L @ np.ones((N, 1)) == 0 ]
+    
+    x = vec(hatS) - Pbeta(P, beta)
+    D = cp.kron(np.identity(n), L)
+    
+    objective = cp.Minimize(w1 * cp.quad_form(x, D) + w2 * cp.norm(L, 'fro') ** 2)
+    cp.Problem(objective, constraints).solve(solver=cp.CLARABEL)
+   
+    return L.value
+
+
+def optimize_hatS(L, P, beta, S, w1):
+    """Optimize the estimated signal"""
+    N, n = S.shape
+    InXL = np.kron(np.identity(n), L)
+    term1 = w1 * InXL + np.identity(N * n)
+    term2 = np.linalg.inv(term1)
+    term3 = vec(S) + w1 * (InXL @ Pbeta(P, beta))
+    return (term2 @ term3).reshape((N, n), order="F")
+
+def optimize_beta(P, L, hatS):
+    """Optimize the regression coefficients"""
+    n = hatS.shape[1]
+    InXL = np.kron(np.identity(n), L)
+    Ptemp = pstack(P)
+    term1 = Ptemp.T @ InXL @ Ptemp
+    term2 = np.linalg.pinv(term1) @ Ptemp.T  # Use pseudoinverse here
+    term3 = InXL @ vec(hatS)
+    return term2 @ term3
+    print("Rank of Ptemp.T @ InXL @ Ptemp:", np.linalg.matrix_rank(Ptemp.T @ InXL @ Ptemp))
+
+def GSPRegression(X_noisy, P, w1, w2, max_iter=100, threshhold=1e-3):
+    """
+    Graph signal regression with Laplacian learning.
+    Returns: [Learned Laplacian, Estimated Signal, Beta, Untouched Laplacian]
+    """
+    N, n = X_noisy.shape
+    hatS = X_noisy.copy()
+    hatS_0 = X_noisy.copy()
+    objective = [0] * max_iter
+    beta = np.zeros((len(P), 1))
+    
+
+    for i in range(max_iter):
+        L = optimize_L(hatS, P, beta, w1, w2)
+        hatS = optimize_hatS(L, P, beta, X_noisy, w1)
+        beta = optimize_beta(P, L, hatS)
+
+        x = vec(hatS) - Pbeta(P, beta)
+        D = np.kron(np.identity(n), L)
+        arg1 = np.linalg.norm(hatS - hatS_0, 'fro') ** 2
+        arg2 = w1 * x.T @ D @ x
+        arg3 = w2 * np.linalg.norm(L, 'fro') ** 2
+        objective[i] = arg1 + arg2 + arg3
+
+        if i >= 2 and abs(objective[i] - objective[i - 1]) < 1e-4:
+            break
+        
+    return [prune(L, threshhold), hatS, beta, L]
+
+
+def Pbeta(P, beta): 
+    P_stack = np.column_stack([
+        np.array(Pi).flatten(order="F") for Pi in P ])
+    beta = beta.flatten()
+    return P_stack @ beta
+
+
+# hyperparameters
+w1 = 5  # smoothness penalty
+w2 = 0.001  # sparsity penalty
+
+# Running
+L_hat, S_hat, beta_hat, raw_L = GSPRegression(X_noisy, P, w1, w2)
+
+L = GSPRegression(X_noisy,P, w1,w2 )[0]
+
+D = pd.read_csv("/Users/chrisduran/Desktop/315/NOAA_dist_increased.csv") 
+
+## Distance Matrix (Mod. in R, threshold in meters, compare)
+threshold_meters = 190_000
+adj_D_df = (D < threshold_meters).astype(int)  # still a DataFrame
+adj_D = adj_D_df.to_numpy()                    # now a NumPy array
+np.fill_diagonal(adj_D, 0)
+
+
+adj_L = np.abs(L_hat.copy())
+np.fill_diagonal(adj_L, 0)
+
+###################
+import networkx as nx
+import matplotlib.pyplot as plt
+
+L_est_BA = L_hat.copy()
+
+L_prBA = prune(L_est_BA, 10**(-3))
+adj_BA = np.abs(L_prBA) - np.diag(np.diag(L_prBA))
+G_est_BA = nx.from_numpy_array(adj_BA)
+
+nx.draw_circular(G_est_BA, node_size=17)
+plt.title("Estimated Graph from Real Data")
+plt.show() 
+
+!pip install seaborn
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(10, 8))
+sns.heatmap(L_prBA, cmap="Greens", vmin=-0.5, vmax=2, square=True)
+plt.title("Learned Graph Laplacian (Real Data)")
+plt.show()
+
