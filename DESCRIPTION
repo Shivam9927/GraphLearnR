@@ -3,7 +3,7 @@ Type: Package
 Title: Graph Learning with External Regressors
 Version: 0.1.0
 Authors@R: person("Shivam", "Pawar",
-                  email = "sgpawar@csuchico.edu",
+                  email = "shivampawars@gmail.com",
                   role = c("aut", "cre"))
 Description: Implements the Graph Learning with External Regressors (GLReg)
     algorithm for learning graph Laplacian structure from noisy signal
